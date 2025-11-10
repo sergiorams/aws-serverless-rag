@@ -11,7 +11,8 @@ requires-python = ">=3.13,<4.0.0"
 dependencies = [
     "boto3 (>=1.40.69,<2.0.0)",
     "python-dotenv (>=1.2.1,<2.0.0)",
-    "langchain-text-splitters (>=1.0.0,<2.0.0)"
+    "langchain-text-splitters (>=1.0.0,<2.0.0)",
+    "pypdf2 (>=3.0.1,<4.0.0)",
 ]
 
 

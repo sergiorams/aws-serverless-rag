@@ -1,10 +1,25 @@
 # RAG using S3 Vector Bucket CLI
 
-### first create an S3 Vector bucket, CLI command:
+
+## Deploy Infrastructure
+
+
+### Create an S3 Bucket
+This bucket is meant as the main landing zone for the documents in raw form, will store PDF and Text files:
+
+`aws s3api create-bucket --bucket bucket-name --region us-east-1`
+
+### Create an S3 Vector bucket:
+S3 Vector bucket is where the vector representation of the data will be stored along with extra metadata:
+
 `aws s3vectors create-vector-bucket --vector-bucket-name <vector-bucket-name> --region us-east-1`
 
-### Create vector index, CLI command:
-(dimensions depend on the embedding model to be used)\
+
+### Create vector index:
+
+Similar to a table in a relational database, the vector index is a collection of vectors and their metadata.
+(dimensions depend on the embedding model to be used)
+
 `aws s3vectors create-index \
   --region us-east-1 \
   --vector-bucket-name <vector-bucket-name> \
@@ -14,7 +29,11 @@
   --distance-metric "cosine" \
   --metadata-configuration '{"nonFilterableMetadataKeys":["source_text", "source_url", "creation_timestamp"]}'`
 
+
 ### Create Bedrock Knowledge Base backed by S3 Vector, CLI command:
+
+Point Bedrock Knowledge Base to the S3 Vector bucket and index created above:
+
 `aws bedrock-agent create-knowledge-base \
   --name "scientists-books-knowledge-base" \
   --description "Knowledge base backed by S3 vectors storage (preview)" \
