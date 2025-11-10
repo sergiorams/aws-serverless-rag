@@ -1,0 +1,89 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: PDF to Text Converter Lambda Function Triggered by S3 Bucket Notification
+
+Parameters:
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues: [dev, staging, prod]
+
+  BucketName:
+    Type: String
+    Default: data-bucket-books-knowledge-base
+    Description: Base name for the S3 bucket
+
+
+Globals:
+  Function:
+    Timeout: 120
+    MemorySize: 512
+    Runtime: python3.13
+
+Resources:
+  # S3 Bucket
+  DataBucket:
+    Type: AWS::S3::Bucket
+    DependsOn: PDFToTextFunctionPermission
+    Properties:
+      BucketName: !Sub '${Environment}-${BucketName}'
+      VersioningConfiguration:
+        Status: Enabled
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      NotificationConfiguration:
+        LambdaConfigurations:
+          - Event: s3:ObjectCreated:*
+            Function: !GetAtt PDFToTextFunction.Arn
+            Filter:
+              S3Key:
+                Rules:
+                  - Name: prefix
+                    Value: pdf/
+                  - Name: suffix
+                    Value: .pdf
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: Serverless-RAG-Pipeline
+
+  # PDF lambda parser function
+  PDFToTextFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub '${Environment}-pdf-to-text-converter'
+      CodeUri: src/pdf_parser/
+      Handler: pdf_parser.lambda_handler
+      Description: Converts PDF files to text files
+      Policies:
+        - S3ReadPolicy:
+            BucketName: !Sub '${Environment}-${BucketName}'
+        - S3WritePolicy:
+            BucketName: !Sub '${Environment}-${BucketName}'
+      Environment:
+        Variables:
+          BUCKET_NAME: !Sub '${Environment}-${BucketName}'
+
+  # S3 Event Permission
+  PDFToTextFunctionPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref PDFToTextFunction
+      Action: lambda:InvokeFunction
+      Principal: s3.amazonaws.com
+      SourceAccount: !Ref AWS::AccountId
+      SourceArn: !Sub 'arn:aws:s3:::${Environment}-${BucketName}'
+
+
+Outputs:
+  PDFToTextFunctionArn:
+    Description: Lambda Function ARN
+    Value: !GetAtt PDFToTextFunction.Arn
+
+  DataBucketOuput:
+    Description: S3 Bucket Name
+    Value: !Ref DataBucket
