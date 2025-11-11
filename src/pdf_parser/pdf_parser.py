@@ -5,7 +5,7 @@ from urllib.parse import unquote_plus
 import boto3
 from PyPDF2 import PdfReader
 
-s3_client = boto3.client("s3")
+s3_client = boto3.client(service_name="s3")
 
 
 def pdf_to_text(pdf_content: bytes) -> str:

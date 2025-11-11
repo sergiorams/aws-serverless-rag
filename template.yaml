@@ -1,18 +1,32 @@
-AWSTemplateFormatVersion: '2010-09-09'
+AWSTemplateFormatVersion: "2010-09-09"
 Transform: AWS::Serverless-2016-10-31
 Description: PDF to Text Converter Lambda Function Triggered by S3 Bucket Notification
 
 Parameters:
   Environment:
     Type: String
-    Default: dev
+    Default: "dev"
     AllowedValues: [dev, staging, prod]
 
   BucketName:
     Type: String
-    Default: data-bucket-books-knowledge-base
+    Default: "rag-data-serverless-kb"
     Description: Base name for the S3 bucket
 
+  PrefixName:
+    Type: String
+    Default: "text"
+    Description: Prefix where text files will land
+
+  VectorBucketName:
+    Type: String
+    Default: "vector-bucket"
+    Description: Base name for the S3 Vector bucket
+
+  EmbeddingsModel:
+    Type: String
+    Default: "amazon.titan-embed-text-v2:0"
+    Description: Embeddings model used by Lambda, should be available on Bedrock
 
 Globals:
   Function:
@@ -20,13 +34,14 @@ Globals:
     MemorySize: 512
     Runtime: python3.13
 
+
 Resources:
   # S3 Bucket
   DataBucket:
     Type: AWS::S3::Bucket
     DependsOn: PDFToTextFunctionPermission
     Properties:
-      BucketName: !Sub '${Environment}-${BucketName}'
+      BucketName: !Sub "${Environment}-${BucketName}"
       VersioningConfiguration:
         Status: Enabled
       PublicAccessBlockConfiguration:
@@ -45,30 +60,60 @@ Resources:
                     Value: pdf/
                   - Name: suffix
                     Value: .pdf
+          - Event: s3:ObjectCreated:*
+            Function: !GetAtt TextToEmbeddingsFunction.Arn
+            Filter:
+              S3Key:
+                Rules:
+                  - Name: prefix
+                    Value: text/
+                  - Name: suffix
+                    Value: .txt
       Tags:
         - Key: Environment
           Value: !Ref Environment
         - Key: Project
           Value: Serverless-RAG-Pipeline
 
+  # S3 Vector Bucket Preview (linter complaining)
+  VectorBucket:
+    Type: AWS::S3Vectors::VectorBucket
+    Properties:
+      VectorBucketName: !Sub "${Environment}-${VectorBucketName}"
+
+  # S3 Vector Index Preview (linter complaining)
+  VectorIndex:
+    Type: AWS::S3Vectors::Index
+    Properties:
+      VectorBucketArn: !GetAtt VectorBucket.VectorBucketArn
+      IndexName: "vector-index"
+      DataType: float32
+      Dimension: 1024
+      DistanceMetric: cosine
+      MetadataConfiguration:
+        NonFilterableMetadataKeys:
+          - source_text
+          - source_url
+          - creation_timestamp
+
   # PDF lambda parser function
   PDFToTextFunction:
     Type: AWS::Serverless::Function
     Properties:
-      FunctionName: !Sub '${Environment}-pdf-to-text-converter'
+      FunctionName: !Sub "${Environment}-pdf-to-text-converter"
       CodeUri: src/pdf_parser/
       Handler: pdf_parser.lambda_handler
       Description: Converts PDF files to text files
       Policies:
         - S3ReadPolicy:
-            BucketName: !Sub '${Environment}-${BucketName}'
+            BucketName: !Sub "${Environment}-${BucketName}"
         - S3WritePolicy:
-            BucketName: !Sub '${Environment}-${BucketName}'
+            BucketName: !Sub "${Environment}-${BucketName}"
       Environment:
         Variables:
-          BUCKET_NAME: !Sub '${Environment}-${BucketName}'
+          BUCKET_NAME: !Sub "${Environment}-${BucketName}"
 
-  # S3 Event Permission
+  # S3 to PDF Lambda Event Permission
   PDFToTextFunctionPermission:
     Type: AWS::Lambda::Permission
     Properties:
@@ -76,14 +121,107 @@ Resources:
       Action: lambda:InvokeFunction
       Principal: s3.amazonaws.com
       SourceAccount: !Ref AWS::AccountId
-      SourceArn: !Sub 'arn:aws:s3:::${Environment}-${BucketName}'
+      SourceArn: !Sub "arn:aws:s3:::${Environment}-${BucketName}"
 
+  # Embeddings lambda function
+  TextToEmbeddingsFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "${Environment}-text-to-embeddings-converter"
+      CodeUri: src/embeddings_generator/
+      Handler: lambda_function.lambda_handler
+      Timeout: 600 # 10 mins
+      Description: Converts Text files to Embeddings
+      Policies:
+        - S3ReadPolicy:
+            BucketName: !Sub "${Environment}-${BucketName}"
+        - S3WritePolicy:
+            BucketName: !Sub "${Environment}-${BucketName}"
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - bedrock:InvokeModel
+              Resource: "*"
+            - Effect: Allow
+              Action:
+                - s3vectors:GetVectors
+                - s3vectors:PutVectors
+                - s3vectors:DeleteVectors
+                - s3vectors:QueryVectors
+              Resource:
+                - !GetAtt VectorBucket.VectorBucketArn
+                - !GetAtt VectorIndex.IndexArn
+      Environment:
+        Variables:
+          BUCKET_NAME: !Sub "${Environment}-${BucketName}"
+          PREFIX: !Sub "${PrefixName}"
+          VECTOR_BUCKET: !Sub "${Environment}-${VectorBucketName}"
+          VECTOR_INDEX: "vector-index"
+          EMBEDDING_MODEL_ID: !Sub "${EmbeddingsModel}"
+
+  # S3 to Embeddings Lambda Event Permission
+  TextToEmbeddingsFunctionPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref TextToEmbeddingsFunction
+      Action: lambda:InvokeFunction
+      Principal: s3.amazonaws.com
+      SourceAccount: !Ref AWS::AccountId
+      SourceArn: !Sub "arn:aws:s3:::${Environment}-${BucketName}"
+
+  # Bedrock Knowledge Base IAM Role
+  BedrockKnowledgeBaseRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: bedrock.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: BedrockS3VectorsAccess
+          PolicyDocument:
+            Statement:
+              - Effect: Allow
+                Action:
+                  - bedrock:InvokeModel
+                Resource: "*"
+              - Effect: Allow
+                Action:
+                  - s3vectors:GetVectors
+                  - s3vectors:PutVectors
+                  - s3vectors:DeleteVectors
+                  - s3vectors:QueryVectors
+                Resource:
+                  - !GetAtt VectorBucket.VectorBucketArn
+                  - !GetAtt VectorIndex.IndexArn
+
+  # Bedrock Knowledge Base (currently not supported on SAM)
+  # RUN CLI command call API Directly
 
 Outputs:
   PDFToTextFunctionArn:
-    Description: Lambda Function ARN
+    Description: PDF parser Lambda Function ARN
     Value: !GetAtt PDFToTextFunction.Arn
+
+  TextToEmbeddingsFunctionArn:
+    Description: Embeddings Lambda Function ARN
+    Value: !GetAtt TextToEmbeddingsFunction.Arn
 
   DataBucketOuput:
     Description: S3 Bucket Name
     Value: !Ref DataBucket
+
+  VectorBucketArn:
+    Description: S3 Vector Bucket ARN
+    Value: !GetAtt VectorBucket.VectorBucketArn
+
+  IndexArn:
+    Description: S3 Vector Index ARN
+    Value: !GetAtt VectorIndex.IndexArn
+
+  KnowledgeBaseRole:
+    Description: Bedrock role ARN
+    Value:  !GetAtt BedrockKnowledgeBaseRole.Arn
