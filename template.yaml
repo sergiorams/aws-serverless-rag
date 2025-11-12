@@ -1,6 +1,6 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Transform: AWS::Serverless-2016-10-31
-Description: PDF to Text Converter Lambda Function Triggered by S3 Bucket Notification
+Description: "PDF to Text Converter Lambda Function Triggered by S3 Bucket Notification"
 
 Parameters:
   Environment:
@@ -11,32 +11,37 @@ Parameters:
   BucketName:
     Type: String
     Default: "rag-data-serverless-kb"
-    Description: Base name for the S3 bucket
+    Description: "Base name for the S3 bucket"
 
   PrefixName:
     Type: String
     Default: "text"
-    Description: Prefix where text files will land
+    Description: "Prefix where text files will land"
 
   VectorBucketName:
     Type: String
     Default: "vector-bucket"
-    Description: Base name for the S3 Vector bucket
+    Description: "Base name for the S3 Vector bucket"
 
   EmbeddingsModel:
     Type: String
     Default: "amazon.titan-embed-text-v2:0"
-    Description: Embeddings model used by Lambda, should be available on Bedrock
+    Description: "Embeddings model used by Lambda, should be available on Bedrock"
 
 Globals:
   Function:
     Timeout: 120
     MemorySize: 512
     Runtime: python3.13
-
+  Api:
+    Cors:
+      AllowMethods: "'POST,OPTIONS'"
+      AllowHeaders: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,X-Amz-Security-Token'"
+      AllowOrigin: "'*'"
+    Name: !Sub "${Environment}-rag-api"
 
 Resources:
-  # S3 Bucket
+  # S3 Data Bucket
   DataBucket:
     Type: AWS::S3::Bucket
     DependsOn: PDFToTextFunctionPermission
@@ -103,7 +108,7 @@ Resources:
       FunctionName: !Sub "${Environment}-pdf-to-text-converter"
       CodeUri: src/pdf_parser/
       Handler: pdf_parser.lambda_handler
-      Description: Converts PDF files to text files
+      Description: "Converts PDF files to text files"
       Policies:
         - S3ReadPolicy:
             BucketName: !Sub "${Environment}-${BucketName}"
@@ -129,9 +134,9 @@ Resources:
     Properties:
       FunctionName: !Sub "${Environment}-text-to-embeddings-converter"
       CodeUri: src/embeddings_generator/
-      Handler: lambda_function.lambda_handler
-      Timeout: 600 # 10 mins
-      Description: Converts Text files to Embeddings
+      Handler: embeddings_generator.lambda_handler
+      Timeout: 300 # 5 mins
+      Description: "Converts Text files to Embeddings"
       Policies:
         - S3ReadPolicy:
             BucketName: !Sub "${Environment}-${BucketName}"
@@ -170,6 +175,46 @@ Resources:
       SourceAccount: !Ref AWS::AccountId
       SourceArn: !Sub "arn:aws:s3:::${Environment}-${BucketName}"
 
+  # Orchestrator RAG Lambda function
+  OrchestratorFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub "${Environment}-rag-orchestrator"
+      CodeUri: src/orchestrator/
+      Handler: orchestrator.lambda_handler
+      Timeout: 300
+      MemorySize: 1024
+      Description: "RAG orchestrator that handles queries and generates answers"
+      Policies:
+        - S3ReadPolicy:
+            BucketName: !Sub "${Environment}-${BucketName}"
+        - Version: '2012-10-17'
+          Statement:
+            - Effect: Allow
+              Action:
+                - bedrock:InvokeModel
+              Resource: "*"
+            - Effect: Allow
+              Action:
+                - s3vectors:GetVectors
+                - s3vectors:QueryVectors
+              Resource:
+                - !GetAtt VectorBucket.VectorBucketArn
+                - !GetAtt VectorIndex.IndexArn
+      Environment:
+        Variables:
+          VECTOR_BUCKET: !Sub "${Environment}-${VectorBucketName}"
+          VECTOR_INDEX: "vector-index"
+          EMBEDDING_MODEL_ID: !Sub "${EmbeddingsModel}"
+          LLM_MODEL_ID: "us.anthropic.claude-3-5-haiku-20241022-v1:0"
+          LOG_LEVEL: "INFO"
+      Events:
+        ApiEvent:
+          Type: Api
+          Properties:
+            Path: /query
+            Method: post
+
   # Bedrock Knowledge Base IAM Role
   BedrockKnowledgeBaseRole:
     Type: AWS::IAM::Role
@@ -203,25 +248,33 @@ Resources:
 
 Outputs:
   PDFToTextFunctionArn:
-    Description: PDF parser Lambda Function ARN
+    Description: "PDF parser Lambda Function ARN"
     Value: !GetAtt PDFToTextFunction.Arn
 
   TextToEmbeddingsFunctionArn:
-    Description: Embeddings Lambda Function ARN
+    Description: "Embeddings Lambda Function ARN"
     Value: !GetAtt TextToEmbeddingsFunction.Arn
 
-  DataBucketOuput:
-    Description: S3 Bucket Name
+  OrchestratorFunctionArn:
+    Description: "RAG Orchestrator Lambda Function ARN"
+    Value: !GetAtt OrchestratorFunction.Arn
+
+  DataBucket:
+    Description: "S3 Bucket Name"
     Value: !Ref DataBucket
 
   VectorBucketArn:
-    Description: S3 Vector Bucket ARN
+    Description: "S3 Vector Bucket ARN"
     Value: !GetAtt VectorBucket.VectorBucketArn
 
   IndexArn:
-    Description: S3 Vector Index ARN
+    Description: "S3 Vector Index ARN"
     Value: !GetAtt VectorIndex.IndexArn
 
   KnowledgeBaseRole:
-    Description: Bedrock role ARN
+    Description: "Bedrock role ARN"
     Value:  !GetAtt BedrockKnowledgeBaseRole.Arn
+
+  RagApiUrl:
+    Description: "API Gateway endpoint URL for RAG queries"
+    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/query"

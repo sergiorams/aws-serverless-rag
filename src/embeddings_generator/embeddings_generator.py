@@ -84,7 +84,7 @@ def generate_embeddings(
             "data": {"float32": embeddings[index]},
             "metadata": {
                 "document_name": document_name,
-                "source_url": f"s3://{BUCKET_NAME}/{PREFIX}/{document_name}.txt",
+                "source_url": f"s3://{BUCKET_NAME}/{PREFIX}/{document_name}",
                 "source_text": chunk,
                 "chunk_index": index,
                 "chunk_size": chunk_size,
