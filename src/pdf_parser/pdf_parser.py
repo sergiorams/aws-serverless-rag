@@ -1,11 +1,17 @@
-import io
 import json
+import logging
+import os
 from urllib.parse import unquote_plus
 
 import boto3
-from PyPDF2 import PdfReader
+import pypdfium2 as pdfium
 
 s3_client = boto3.client(service_name="s3")
+
+# Initialize the logger, Get the log level from the environment variable
+logger = logging.getLogger()
+log_level = os.environ.get("LOG_LEVEL", "INFO")
+logger.setLevel(log_level)
 
 
 def pdf_to_text(pdf_content: bytes) -> str:
@@ -18,9 +24,24 @@ def pdf_to_text(pdf_content: bytes) -> str:
     :return: The extracted text content from the PDF
     """
     # Extract text from PDF
-    pdf_reader = PdfReader(io.BytesIO(pdf_content))
-    page_texts = [page.extract_text() for page in pdf_reader.pages]
-    return "\n".join(page_texts)
+    try:
+        pdf_doc = pdfium.PdfDocument(pdf_content)
+
+        # Extract text from all pages
+        text_pages = []
+        for page in pdf_doc:
+            text_page = page.get_textpage()
+            text = text_page.get_text_range()
+            if text.strip():  # Only add non-empty pages
+                text_pages.append(text)
+            text_page.close()
+        pdf_doc.close()
+
+        return "\n\n".join(text_pages)
+
+    except Exception as e:
+        logger.error(f"Error extracting text with pypdfium2: {str(e)}")
+        raise
 
 
 def lambda_handler(event, context):
@@ -28,7 +49,7 @@ def lambda_handler(event, context):
     Triggered when a PDF is uploaded to bucket/pdf/
     Extracts text and uploads to bucket/text/
     """
-    print(f"Event :{event}")
+    logger.info(f"Event :{event}")
 
     try:
         # Unpack event data
@@ -37,14 +58,20 @@ def lambda_handler(event, context):
 
         # Decode URL-encoded key
         key = unquote_plus(key)
-        print(f"Processing: {bucket}/{key}")
+        logger.info(f"Processing: {bucket}/{key}")
 
         # Get object locally
         pdf_obj = s3_client.get_object(Bucket=bucket, Key=key)
         pdf_content = pdf_obj["Body"].read()
+        logger.debug(f"Document document: {pdf_content}")
 
         # Extract text from PDF
         text = pdf_to_text(pdf_content=pdf_content)
+        logger.info(f"Extracted {len(text)} characters")
+
+        if not text.strip():
+            text = "[No text could be extracted from this PDF]"
+            logger.warning("No text extracted from PDF")
 
         # Generate output key (replace pdf/ with text/ and .pdf with .txt)
         output_key = key.replace("pdf/", "text/").replace(".pdf", ".txt")
@@ -57,7 +84,7 @@ def lambda_handler(event, context):
             ContentType="text/plain",
         )
 
-        print(f"Successfully created: {bucket}/{output_key}")
+        logger.info(f"Successfully created: {bucket}/{output_key}")
 
         return {
             "statusCode": 200,
@@ -67,5 +94,5 @@ def lambda_handler(event, context):
         }
 
     except Exception as e:
-        print(f"Error: {str(e)}")
+        logger.error(f"Error: {str(e)}")
         return {"statusCode": 500, "body": json.dumps({"error": str(e)})}
