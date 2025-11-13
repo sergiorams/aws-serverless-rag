@@ -80,13 +80,13 @@ Resources:
         - Key: Project
           Value: Serverless-RAG-Pipeline
 
-  # S3 Vector Bucket Preview (linter complaining)
+  # S3 Vector Bucket (Preview only in US-EAST-1)
   VectorBucket:
     Type: AWS::S3Vectors::VectorBucket
     Properties:
       VectorBucketName: !Sub "${Environment}-${VectorBucketName}"
 
-  # S3 Vector Index Preview (linter complaining)
+  # S3 Vector Index Preview (Preview only in US-EAST-1)
   VectorIndex:
     Type: AWS::S3Vectors::Index
     Properties:
@@ -135,7 +135,7 @@ Resources:
       FunctionName: !Sub "${Environment}-text-to-embeddings-converter"
       CodeUri: src/embeddings_generator/
       Handler: embeddings_generator.lambda_handler
-      Timeout: 300 # 5 mins
+      Timeout: 300 # 5 mins anticipating for larger documents
       Description: "Converts Text files to Embeddings"
       Policies:
         - S3ReadPolicy:
@@ -182,12 +182,14 @@ Resources:
       FunctionName: !Sub "${Environment}-rag-orchestrator"
       CodeUri: src/orchestrator/
       Handler: orchestrator.lambda_handler
-      Timeout: 300
+      Timeout: 180
       MemorySize: 1024
       Description: "RAG orchestrator that handles queries and generates answers"
       Policies:
         - S3ReadPolicy:
             BucketName: !Sub "${Environment}-${BucketName}"
+        - DynamoDBCrudPolicy:
+            TableName: !Ref ConversationTable
         - Version: '2012-10-17'
           Statement:
             - Effect: Allow
@@ -207,6 +209,7 @@ Resources:
           VECTOR_INDEX: "vector-index"
           EMBEDDING_MODEL_ID: !Sub "${EmbeddingsModel}"
           LLM_MODEL_ID: "us.anthropic.claude-3-5-haiku-20241022-v1:0"
+          DYNAMODB_TABLE: !Ref ConversationTable
           LOG_LEVEL: "INFO"
       Events:
         ApiEvent:
@@ -243,22 +246,34 @@ Resources:
                   - !GetAtt VectorBucket.VectorBucketArn
                   - !GetAtt VectorIndex.IndexArn
 
+  # DynamoDB table for conversation history
+  ConversationTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub "${Environment}-rag-memory"
+      AttributeDefinitions:
+        - AttributeName: conversation_id
+          AttributeType: S
+        - AttributeName: timestamp
+          AttributeType: S
+      KeySchema:
+        - AttributeName: conversation_id
+          KeyType: HASH # primary key
+        - AttributeName: timestamp
+          KeyType: RANGE # sort key
+      BillingMode: PAY_PER_REQUEST
+      Tags:
+        - Key: Environment
+          Value: !Ref Environment
+        - Key: Project
+          Value: Serverless-RAG-Pipeline
+
   # Bedrock Knowledge Base (currently not supported on SAM)
-  # RUN CLI command call API Directly
+  # RUN CLI command call API Directly, README.md for more details
 
 Outputs:
-  PDFToTextFunctionArn:
-    Description: "PDF parser Lambda Function ARN"
-    Value: !GetAtt PDFToTextFunction.Arn
 
-  TextToEmbeddingsFunctionArn:
-    Description: "Embeddings Lambda Function ARN"
-    Value: !GetAtt TextToEmbeddingsFunction.Arn
-
-  OrchestratorFunctionArn:
-    Description: "RAG Orchestrator Lambda Function ARN"
-    Value: !GetAtt OrchestratorFunction.Arn
-
+  # Storage
   DataBucket:
     Description: "S3 Bucket Name"
     Value: !Ref DataBucket
@@ -271,10 +286,29 @@ Outputs:
     Description: "S3 Vector Index ARN"
     Value: !GetAtt VectorIndex.IndexArn
 
+  ConversationTable:
+    Description: "Dynamo table ARN"
+    Value: !GetAtt VectorIndex.IndexArn
+
+  # Lambdas
+  PDFToTextFunctionArn:
+    Description: "PDF parser Lambda Function ARN"
+    Value: !GetAtt PDFToTextFunction.Arn
+
+  TextToEmbeddingsFunctionArn:
+    Description: "Embeddings Lambda Function ARN"
+    Value: !GetAtt TextToEmbeddingsFunction.Arn
+
+  OrchestratorFunctionArn:
+    Description: "RAG Orchestrator Lambda Function ARN"
+    Value: !GetAtt OrchestratorFunction.Arn
+
+  # AI
   KnowledgeBaseRole:
     Description: "Bedrock role ARN"
     Value:  !GetAtt BedrockKnowledgeBaseRole.Arn
 
+  # API
   RagApiUrl:
     Description: "API Gateway endpoint URL for RAG queries"
     Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/query"

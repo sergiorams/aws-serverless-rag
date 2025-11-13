@@ -6,12 +6,13 @@ from urllib.parse import unquote_plus
 import boto3
 import pypdfium2 as pdfium
 
-s3_client = boto3.client(service_name="s3")
-
 # Initialize the logger, Get the log level from the environment variable
 logger = logging.getLogger()
 log_level = os.environ.get("LOG_LEVEL", "INFO")
 logger.setLevel(log_level)
+
+# Configuration: Client
+s3_client = boto3.client(service_name="s3")
 
 
 def pdf_to_text(pdf_content: bytes) -> str:
@@ -23,7 +24,6 @@ def pdf_to_text(pdf_content: bytes) -> str:
 
     :return: The extracted text content from the PDF
     """
-    # Extract text from PDF
     try:
         pdf_doc = pdfium.PdfDocument(pdf_content)
 
