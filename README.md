@@ -15,11 +15,20 @@ Available on **US-EAST-1**
 Since Vector buckets as Bedrock Knowledge Base are not yet supported by SAM we do this via the CLI.
 Point Bedrock Knowledge Base to the S3 Vector bucket and index created above from the outputs:
 
-* Run `
+**Outputs to be replaced:**
+
+| key               | Description          | Value                  |
+|-------------------|----------------------|------------------------|
+| KnowledgeBaseRole | Bedrock role ARN     | Known after deployment |
+| vectorBucketArn   | S3 Vector Bucket ARN | Known after deployment |
+| indexArn          | S3 Vector Index ARN  | Known after deployment |
+
+* Replace and Run
+`
 aws bedrock-agent create-knowledge-base \
-  --name "<envorionmet>-books-knowledge-base" \
+  --name "<knowledge base name>" \
   --description "Knowledge base backed by S3 vectors storage (preview add to SAM when available)" \
-  --role-arn "<ARN from SAM output>" \
+  --role-arn "<KnowledgeBaseRole output>" \
   --knowledge-base-configuration '{
     "type": "VECTOR",
     "vectorKnowledgeBaseConfiguration": {
@@ -41,3 +50,24 @@ aws bedrock-agent create-knowledge-base \
   }' \
   --region us-east-1
 `
+
+## How to use
+
+Upload PDF documents to the S3 Data Bucket under the `/pdf` "directory" or directly to the `/text` directory.
+after a few seconds, the system will index the documents and they will be ready to be queried.
+
+## Endpoint
+
+from outputs: **RagApiUrl**
+Where top K is the most relevant documents to use as context.
+
+``
+curl -Method POST "<RagApiUrl>" `
+  -Headers @{ "Content-Type" = "application/json" } `
+  -Body '{
+    "question": "Tell me something interesting about the cosmos",
+    "user_id": "demo-user-1",
+    "session_id": "session-1",
+    "top_k": 3
+  }'
+``

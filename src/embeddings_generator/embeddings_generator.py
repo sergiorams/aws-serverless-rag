@@ -12,18 +12,19 @@ logger = logging.getLogger()
 log_level = os.environ.get("LOG_LEVEL", "INFO")
 logger.setLevel(log_level)
 
-# CONFIGURATION: STORAGE & EMBEDDINGS MODEL
+# Configuration: Storage & Embeddings model
 BUCKET_NAME = os.getenv("BUCKET_NAME")
 PREFIX = os.getenv("PREFIX", "text")
 VECTOR_BUCKET = os.getenv("VECTOR_BUCKET")
 VECTOR_INDEX = os.getenv("VECTOR_INDEX")
 EMBEDDING_MODEL_ID = os.getenv("EMBEDDING_MODEL_ID", "amazon.titan-embed-text-v2:0")
 BATCH_WRITE_SIZE = 500  # max batch size for vector write API (as per AWS docs)
+AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
 
-# CONFIGURATION: CLIENTS
-s3_client = boto3.client(service_name="s3")
-s3_vector_client = boto3.client(service_name="s3vectors")
-bedrock_client = boto3.client(service_name="bedrock-runtime")
+# Configuration: Clients
+s3_client = boto3.client(service_name="s3", region_name=AWS_REGION)
+s3_vector_client = boto3.client(service_name="s3vectors", region_name=AWS_REGION)
+bedrock_client = boto3.client(service_name="bedrock-runtime", region_name=AWS_REGION)
 
 
 def invoke_embeddings_model(chunks: list, model_id: str = EMBEDDING_MODEL_ID) -> list:
