@@ -163,6 +163,8 @@ Resources:
           PREFIX: !Sub "${PrefixName}"
           VECTOR_BUCKET: !Sub "${Environment}-${VectorBucketName}"
           VECTOR_INDEX: "vector-index"
+          CHUNK_SIZE: 1000
+          CHUNK_OVERLAP: 200
           EMBEDDING_MODEL_ID: !Sub "${EmbeddingsModel}"
 
   # S3 to Embeddings Lambda Event Permission

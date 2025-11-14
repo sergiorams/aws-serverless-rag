@@ -17,7 +17,7 @@ EMBEDDING_MODEL_ID = os.getenv("EMBEDDING_MODEL_ID", "amazon.titan-embed-text-v2
 LLM_MODEL_ID = os.getenv("LLM_MODEL_ID", "us.anthropic.claude-3-5-haiku-20241022-v1:0")
 DYNAMODB_TABLE = os.getenv("DYNAMODB_TABLE", "staging-rag-memory")
 AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
-REBALANCE_THRESHOLD = 0.7
+RELEVANCE_THRESHOLD = 0.7
 
 # Configuration: Clients
 s3_client = boto3.client(service_name="s3", region_name=AWS_REGION)
@@ -27,7 +27,7 @@ bedrock_client = boto3.client(service_name="bedrock-runtime", region_name=AWS_RE
 # Initialize conversation memory
 conversation_memory = ConversationMemory(table_name=DYNAMODB_TABLE)
 
-# LLM System prompt
+# System prompt
 SYSTEM_PROMPT = (
     "You are an AI assistant specialized in answering questions about books and literature. "
     "You will be provided with:\n"
@@ -88,7 +88,7 @@ def lambda_handler(event, context):
 
         # Optional parameters
         top_k = body.get("top_k", 5)
-        threshold = body.get("threshold", REBALANCE_THRESHOLD)
+        threshold = body.get("threshold", RELEVANCE_THRESHOLD)
 
         logger.info(
             f"Processing question: {question} for user: {user_id}, session: {session_id}"
@@ -102,14 +102,12 @@ def lambda_handler(event, context):
         # Retrieve relevant documents
         relevant_docs = retrieve_documents(query=question, top_k=top_k)
 
-        if not relevant_docs:
-            answer = (
-                "I couldn't find any relevant information in the knowledge base to answer your question. "
-                "Please try rephrasing your question or asking about a different topic."
-            )
-        else:
-            # Generate answer using LLM with conversation history
-            answer = generate_answer_with_llm(question, relevant_docs, recent_messages)
+        # Generate answer using LLM with conversation history
+        answer = generate_answer_with_llm(
+            question=question,
+            relevant_docs=relevant_docs,
+            conversation_history=recent_messages,
+        )
 
         # Store the new message pair
         sources = prepare_sources(relevant_docs)
@@ -143,7 +141,10 @@ def lambda_handler(event, context):
 
 
 def retrieve_documents(
-    query: str, top_k: int = 5, model_id: str = EMBEDDING_MODEL_ID
+    query: str,
+    top_k: int = 5,
+    model_id: str = EMBEDDING_MODEL_ID,
+    relevance_threshold: float = RELEVANCE_THRESHOLD,
 ) -> list:
     """
     Retrieve relevant documents from the vector store based on a query.
@@ -151,6 +152,7 @@ def retrieve_documents(
     :param query: STRING A text query for which relevant documents need to be retrieved.
     :param top_k: INT Number of top documents to retrieve based on relevance (default is 5).
     :param model_id: STRING Model ID used to generate embeddings for the query, (default Titan model).
+    :param relevance_threshold: FLOAT Minimum distance between query and document to be considered relevant.
 
     :return: A list of relevant documents matching the query, including metadata and relevance details.
     """
@@ -178,7 +180,7 @@ def retrieve_documents(
     # Extract and format relevant results
     results = []
     for result in search_response.get("vectors", []):
-        if result.get("distance") < REBALANCE_THRESHOLD:
+        if result.get("distance") < relevance_threshold:
             document_info = {
                 "key": result.get("key"),
                 "distance": result.get("distance"),
@@ -274,7 +276,7 @@ def prepare_sources(relevant_docs: list) -> list:
 
     :param relevant_docs: LIST of documents from the RAG process
 
-    :return
+    :return list of relevant documents
     """
     sources = []
     for doc in relevant_docs:
@@ -337,40 +339,3 @@ def create_error_response(status_code: int, message: str) -> dict:
         },
         "body": json.dumps({"error": message}),
     }
-
-
-def main():
-    """
-    Main function for local testing of the complete RAG system with memory.
-    """
-    # Configure logger for local testing
-    logging.basicConfig(
-        level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
-    )
-
-    # Test the Lambda handler locally with conversation memory
-    test_event = {
-        "body": json.dumps(
-            {
-                "question": "Do you remember my name?",
-                "user_id": "test_user_123",
-                "session_id": "test_session_456",
-                "top_k": 3,
-            }
-        )
-    }
-
-    print("Testing Complete RAG System with Memory")
-    print("=" * 50)
-
-    response = lambda_handler(test_event, {})
-
-    print(f"Status Code: {response['statusCode']}")
-    print(f"Response Body: {json.dumps(json.loads(response['body']), indent=2)}")
-
-    print("\n" + "=" * 50)
-    print("✅ RAG system with memory testing completed")
-
-
-if __name__ == "__main__":
-    main()
