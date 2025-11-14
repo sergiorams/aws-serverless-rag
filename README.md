@@ -58,8 +58,10 @@ aws bedrock-agent create-knowledge-base \
 
 ## How to use
 
-**Upload PDF documents to the S3 Data Bucket under the `/pdf` "directory" or directly to the `/text` directory.
-after a few seconds, the system will index the documents and they will be ready to be queried.**
+1. Upload PDF documents to the S3 Data Bucket under the `/pdf` "directory" or directly to the `/text` directory.
+2. Give it a minute to process the embeddings and sync to Bedrock Knowledge Base.
+3. They is be ready to be queried via the API.
+
 
 **Note:** This example system was feed multiple Carl Sagan's books for below response.
 

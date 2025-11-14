@@ -80,6 +80,36 @@ Resources:
         - Key: Project
           Value: Serverless-RAG-Pipeline
 
+  # Create placeholder objects for prefixes
+  CreatePrefixesFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      InlineCode: |
+        import boto3
+        import cfnresponse
+        def handler(event, context):
+            s3 = boto3.client('s3')
+            bucket = event['ResourceProperties']['BucketName']
+            try:
+                if event['RequestType'] in ['Create', 'Update']:
+                    s3.put_object(Bucket=bucket, Key='pdf/.keep', Body=b'')
+                    s3.put_object(Bucket=bucket, Key='text/.keep', Body=b'')
+                cfnresponse.send(event, context, cfnresponse.SUCCESS, {})
+            except Exception as e:
+                cfnresponse.send(event, context, cfnresponse.FAILED, {'Error': str(e)})
+      Handler: index.handler
+      Runtime: python3.13
+      Timeout: 60
+      Policies:
+        - S3WritePolicy:
+            BucketName: !Sub "${Environment}-${BucketName}"
+
+  CreatePrefixes:
+    Type: Custom::CreatePrefixes
+    Properties:
+      ServiceToken: !GetAtt CreatePrefixesFunction.Arn
+      BucketName: !Ref DataBucket
+
   # S3 Vector Bucket (Preview only in US-EAST-1)
   VectorBucket:
     Type: AWS::S3Vectors::VectorBucket
