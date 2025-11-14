@@ -12,14 +12,17 @@ logger = logging.getLogger()
 log_level = os.environ.get("LOG_LEVEL", "INFO")
 logger.setLevel(log_level)
 
+AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
+
 # Configuration: Storage & Embeddings model
 BUCKET_NAME = os.getenv("BUCKET_NAME")
 PREFIX = os.getenv("PREFIX", "text")
 VECTOR_BUCKET = os.getenv("VECTOR_BUCKET")
 VECTOR_INDEX = os.getenv("VECTOR_INDEX")
+CHUNK_SIZE = int(os.getenv("CHUNK_SIZE", 1000))
+CHUNK_OVERLAP = int(os.getenv("CHUNK_OVERLAP", 200))
 EMBEDDING_MODEL_ID = os.getenv("EMBEDDING_MODEL_ID", "amazon.titan-embed-text-v2:0")
 BATCH_WRITE_SIZE = 500  # max batch size for vector write API (as per AWS docs)
-AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
 
 # Configuration: Clients
 s3_client = boto3.client(service_name="s3", region_name=AWS_REGION)
@@ -53,8 +56,8 @@ def invoke_embeddings_model(chunks: list, model_id: str = EMBEDDING_MODEL_ID) ->
 
 def generate_embeddings(
     document: str,
-    chunk_size: int = 1000,
-    chunk_overlap: int = 100,
+    chunk_size: int = CHUNK_SIZE,
+    chunk_overlap: int = CHUNK_OVERLAP,
     document_name: str = None,
 ):
     """
