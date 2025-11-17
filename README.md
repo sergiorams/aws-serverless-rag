@@ -3,6 +3,11 @@
 Build a serverless RAG system featuring the new S3 Vector Buckets for a **low-cost** solution.
 Available on **US-EAST-1**
 
+pre-requisites:
+* AWS Account
+* SAM CLI installed and configured
+* Get Anthropic model access on Bedrock
+
 ## Architecture diagram
 ![Alt Text](AWS_Serverless_Rag_Diagram.gif)
 

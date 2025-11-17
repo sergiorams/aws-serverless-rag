@@ -13,11 +13,6 @@ Parameters:
     Default: "rag-data-serverless-kb"
     Description: "Base name for the S3 bucket"
 
-  PrefixName:
-    Type: String
-    Default: "text"
-    Description: "Prefix where text files will land"
-
   VectorBucketName:
     Type: String
     Default: "vector-bucket"
@@ -27,6 +22,16 @@ Parameters:
     Type: String
     Default: "amazon.titan-embed-text-v2:0"
     Description: "Embeddings model used by Lambda, should be available on Bedrock"
+
+  ChunkSize:
+    Type: String
+    Default: "1000"
+    Description: "Chunk size"
+
+  ChunkOverlap:
+    Type: String
+    Default: "200"
+    Description: "Chunk overlap"
 
 Globals:
   Function:
@@ -190,11 +195,11 @@ Resources:
       Environment:
         Variables:
           BUCKET_NAME: !Sub "${Environment}-${BucketName}"
-          PREFIX: !Sub "${PrefixName}"
+          PREFIX: "text"
           VECTOR_BUCKET: !Sub "${Environment}-${VectorBucketName}"
           VECTOR_INDEX: "vector-index"
-          CHUNK_SIZE: 1000
-          CHUNK_OVERLAP: 200
+          CHUNK_SIZE: !Sub "${ChunkSize}"
+          CHUNK_OVERLAP: !Sub "${ChunkOverlap}"
           EMBEDDING_MODEL_ID: !Sub "${EmbeddingsModel}"
 
   # S3 to Embeddings Lambda Event Permission
